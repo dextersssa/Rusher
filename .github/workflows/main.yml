@@ -1,5 +1,4 @@
-name: Train LoRA Model
-
+name: Train Model
 on:
   workflow_dispatch:
     inputs:
@@ -8,50 +7,43 @@ on:
         description: The name of the Hugging Face repository to save the model (e.g., `Roshmikax/PonySDXL_Navodi`).
       trigger-word:
         required: true
-        description: The trigger word for the LoRA model.
+        description: The trigger word for the model.
         default: Navodix
       max-train-steps:
         required: true
         description: The total number of training steps.
-        default: 2000
-
+        default: '2000'
 env:
   HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
-
 jobs:
-  train-lora:
+  train-model:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
       - name: Set Up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch transformers diffusers pillow requests peft
-
+          pip install torch transformers diffusers pillow requests
       - name: Run Training Script
         run: |
           python train_lora.py \
             --data_url "https://huggingface.co/Roshmikax/sdxlnngi/resolve/main/navodi.zip" \
             --checkpoint_url "https://civitai.com/api/download/models/290640?type=Model&format=SafeTensor&size=pruned&fp=fp16&token=075a4e5a368529bba1bd492fd2443386" \
             --output_dir "./output" \
-            --trigger_word "${{ inputs.trigger-word }}" \
+            --trigger_word "${{ github.event.inputs.trigger-word }}" \
             --hf_token ${{ secrets.HUGGINGFACE_TOKEN }} \
             --config "config.json"
-
       - name: Upload Model to Hugging Face
         run: |
           huggingface-cli login --token ${{ secrets.HUGGINGFACE_TOKEN }}
           cd output
           git init
-          git remote add origin https://huggingface.co/${{ inputs.model-name }}
+          git remote add origin https://huggingface.co/${{ github.event.inputs.model-name }}
           git add .
-          git commit -m "Add trained LoRA model"
+          git commit -m "Add trained model"
           git push origin main --force
