@@ -12,51 +12,35 @@ import json
 def huggingface_login(token):
     os.system(f"huggingface-cli login --token {token}")
 
-def download_dataset(url, output_dir):
-    print(f"Downloading dataset from {url}...")
-    response = requests.get(url, stream=True)
-    if response.status_code != 200:
-        print(f"Failed to download dataset. Status code: {response.status_code}")
+def download_image(url, output_dir):
+    try:
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            image_name = os.path.basename(url.split('?')[0])
+            image_path = os.path.join(output_dir, image_name)
+            with open(image_path, 'wb') as f:
+                for chunk in response.iter_content(1024):
+                    f.write(chunk)
+            print(f"Downloaded {image_name}")
+        else:
+            print(f"Failed to download {url}. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"Error downloading {url}: {e}")
+
+def download_images_from_list(file_path, output_dir):
+    if not os.path.exists(file_path):
+        print(f"Image URL list file {file_path} does not exist.")
         exit(1)
     
-    dataset_zip_path = os.path.join(output_dir, "dataset.zip")
-    with open(dataset_zip_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
+    os.makedirs(output_dir, exist_ok=True)
     
-    print(f"Extracting dataset to {output_dir}...")
-    with zipfile.ZipFile(dataset_zip_path, 'r') as zip_ref:
-        zip_ref.extractall(output_dir)
+    with open(file_path, 'r') as f:
+        urls = f.readlines()
     
-    print(f"Dataset downloaded and extracted to {output_dir}")
-    print("Contents of the extracted directory:")
-    for root, dirs, files in os.walk(output_dir):
-        level = root.replace(output_dir, '').count(os.sep)
-        indent = ' ' * 4 * (level)
-        print(f"{indent}{os.path.basename(root)}/")
-        sub_indent = ' ' * 4 * (level + 1)
-        for f in files:
-            print(f"{sub_indent}{f}")
-
-def download_checkpoint(checkpoint_url, output_path):
-    print(f"Downloading checkpoint from {checkpoint_url}...")
-    response = requests.get(checkpoint_url, stream=True)
-    if response.status_code != 200:
-        print(f"Failed to download checkpoint. Status code: {response.status_code}")
-        exit(1)
-    
-    with open(output_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-    print(f"Checkpoint downloaded to {output_path}")
-
-def find_image_directory(base_dir):
-    for root, dirs, files in os.walk(base_dir):
-        if any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in files):
-            return root
-    return None
+    for url in urls:
+        url = url.strip()
+        if url:
+            download_image(url, output_dir)
 
 def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-image-captioning-base'):
     print(f"Generating captions for images in: {input_dir}")
@@ -122,40 +106,33 @@ def train_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, c
     os.system(f"git init")
     os.system(f"git remote add origin https://huggingface.co/{model_name}")
     os.system(f"git add . && git commit -m 'Add trained model' && git push origin main")
-
+    
     print("Model uploaded successfully.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model")
-    parser.add_argument("--data_url", type=str, required=True, help="URL of the dataset zip file")
+    parser.add_argument("--image_urls", type=str, default="image_urls.txt", help="Path to the text file containing image URLs")
     parser.add_argument("--checkpoint_url", type=str, required=True, help="URL of the base model checkpoint")
     parser.add_argument("--output_dir", type=str, default="./output", help="Directory to save trained model")
     parser.add_argument("--trigger_word", type=str, default="Navodix", help="Trigger word for the model")
     parser.add_argument("--hf_token", type=str, required=True, help="Hugging Face access token")
     parser.add_argument("--config", type=str, required=True, help="JSON file with hyperparameters")
+    parser.add_argument("--model_name", type=str, required=True, help="Name of the Hugging Face model repository (e.g., your-username/YourModelName)")
 
     args = parser.parse_args()
 
-    # Step 1: Download and extract the dataset
-    download_dataset(args.data_url, "./dataset")
+    # Step 1: Download images from URLs
+    download_images_from_list(args.image_urls, "./dataset/images")
 
     # Step 2: Download the base model checkpoint
     download_checkpoint(args.checkpoint_url, "./base_model.safetensors")
 
-    # Step 3: Find the image directory
-    image_dir = find_image_directory("./dataset")
-    if image_dir is None:
-        print("No directory with images found in the dataset.")
-        exit(1)
-    
-    print(f"Using image directory: {image_dir}")
+    # Step 3: Generate captions for images
+    generate_captions("./dataset/images", "./dataset/captions")
 
-    # Step 4: Generate captions for images
-    generate_captions(image_dir, "./dataset/captions")
-
-    # Step 5: Load configuration
+    # Step 4: Load configuration
     with open(args.config) as f:
         config = json.load(f)
 
-    # Step 6: Train the model
-    train_model("./dataset", "./base_model.safetensors", args.trigger_word, args.output_dir, args.hf_token, config)
+    # Step 5: Train the model
+    train_model("./dataset", "./base_model.safetensors", args.trigger_word, args.model_name, args.hf_token, config)
