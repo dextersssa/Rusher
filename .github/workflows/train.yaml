@@ -5,18 +5,17 @@ on:
     inputs:
       model-name:
         required: true
-        description: The name of the Replicate model to publish, in the format `your-replicate-username/desired-model-name`.
+        description: The name of the model to save on Hugging Face after training.
       prompt-identifier:
         required: true
         description: A custom string to trigger the style in prompts (e.g., "Navodix").
       max-train-steps:
         required: true
-        description: Total number of training steps to perform.
+        description: Total number of training steps.
         type: number
         default: 2000
 
 env:
-  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
 
 jobs:
@@ -77,20 +76,3 @@ jobs:
       - name: Save Trained Model to Hugging Face
         run: |
           huggingface-cli upload ./output --repo Roshmikax/PonySDXL_Navodi --token ${{ secrets.HUGGINGFACE_TOKEN }}
-
-      - name: Link to Model on Replicate
-        run: |
-          curl -s -X POST \
-            -H "Authorization: Token ${{ secrets.REPLICATE_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "input": {
-                "instance_prompt": "a photo of ${{ inputs.prompt-identifier }} person",
-                "class_prompt": "a photo of a person",
-                "instance_data": "${{ steps.upload-training-data.outputs.INSTANCE_DATA_URL }}",
-                "max_train_steps": ${{ inputs.max-train-steps }}
-              },
-              "model": "${{ inputs.model-name }}",
-              "trainer_version": "cd3f925f7ab21afaef7d45224790eedbb837eeac40d22e8fefe015489ab644aa"
-            }' \
-          https://dreambooth-api-experimental.replicate.com/v1/trainings
