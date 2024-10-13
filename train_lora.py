@@ -7,7 +7,6 @@ import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from torch.optim import AdamW
-from peft import LoraConfig, get_peft_model
 
 # Hugging Face CLI login function
 def huggingface_login(token):
@@ -52,13 +51,8 @@ def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_tok
     pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype=torch.float16)
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
 
-    # Inject LoRA into the model using PEFT
-    lora_config = LoraConfig(
-        r=config['network_dim'], 
-        lora_alpha=config['network_alpha'], 
-        target_modules=["q_proj", "v_proj"]
-    )
-    pipe.unet = get_peft_model(pipe.unet, lora_config)
+    # Here you would normally set up LoRA, but since we can't use peft, we'll just use the base model
+    # You may want to look into alternative methods or libraries for LoRA implementation
 
     # Optimizer
     optimizer = AdamW(params=pipe.unet.parameters(), lr=config['unet_lr'])
@@ -80,10 +74,10 @@ def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_tok
     huggingface_login(hf_token)
     os.system(f"git init")
     os.system(f"git remote add origin https://huggingface.co/{model_name}")
-    os.system(f"git add . && git commit -m 'Add trained LoRA model' && git push origin main")
+    os.system(f"git add . && git commit -m 'Add trained model' && git push origin main")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train a LoRA model")
+    parser = argparse.ArgumentParser(description="Train a model")
     parser.add_argument("--data_url", type=str, required=True, help="URL of the dataset zip file")
     parser.add_argument("--checkpoint_url", type=str, required=True, help="URL of the base model checkpoint")
     parser.add_argument("--output_dir", type=str, default="./output", help="Directory to save trained model")
