@@ -18,29 +18,51 @@ def download_dataset(url, output_dir):
 
     with zipfile.ZipFile("dataset.zip", 'r') as zip_ref:
         zip_ref.extractall(output_dir)
+    
+    print(f"Dataset downloaded and extracted to {output_dir}")
+    print("Contents of the extracted directory:")
+    for root, dirs, files in os.walk(output_dir):
+        level = root.replace(output_dir, '').count(os.sep)
+        indent = ' ' * 4 * (level)
+        print(f"{indent}{os.path.basename(root)}/")
+        sub_indent = ' ' * 4 * (level + 1)
+        for f in files:
+            print(f"{sub_indent}{f}")
 
 def download_checkpoint(checkpoint_url, output_path):
     response = requests.get(checkpoint_url)
     with open(output_path, 'wb') as f:
         f.write(response.content)
+    print(f"Checkpoint downloaded to {output_path}")
 
 def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-image-captioning-base'):
+    if not os.path.exists(input_dir):
+        print(f"Error: Input directory {input_dir} does not exist.")
+        return
+
     processor = BlipProcessor.from_pretrained(model_name)
     model = BlipForConditionalGeneration.from_pretrained(model_name)
 
     os.makedirs(output_dir, exist_ok=True)
     
-    for image_name in os.listdir(input_dir):
-        if image_name.lower().endswith(('.png', '.jpg', '.jpeg')):
-            image_path = os.path.join(input_dir, image_name)
-            image = Image.open(image_path).convert('RGB')
-            inputs = processor(image, return_tensors="pt")
-            out = model.generate(**inputs)
-            caption = processor.decode(out[0], skip_special_tokens=True)
+    image_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    
+    if not image_files:
+        print(f"No image files found in {input_dir}")
+        return
 
-            caption_file = os.path.splitext(image_name)[0] + ".txt"
-            with open(os.path.join(output_dir, caption_file), "w") as f:
-                f.write(caption)
+    for image_name in image_files:
+        image_path = os.path.join(input_dir, image_name)
+        image = Image.open(image_path).convert('RGB')
+        inputs = processor(image, return_tensors="pt")
+        out = model.generate(**inputs)
+        caption = processor.decode(out[0], skip_special_tokens=True)
+
+        caption_file = os.path.splitext(image_name)[0] + ".txt"
+        with open(os.path.join(output_dir, caption_file), "w") as f:
+            f.write(caption)
+    
+    print(f"Captions generated and saved in {output_dir}")
 
 def train_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, config):
     pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype=torch.float16)
@@ -77,7 +99,15 @@ if __name__ == "__main__":
     download_dataset(args.data_url, "./dataset")
     download_checkpoint(args.checkpoint_url, "./base_model.safetensors")
 
-    generate_captions("./dataset/images", "./dataset/captions")
+    # Find the correct image directory
+    image_dir = "./dataset"
+    for root, dirs, files in os.walk("./dataset"):
+        if any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in files):
+            image_dir = root
+            break
+
+    print(f"Using image directory: {image_dir}")
+    generate_captions(image_dir, "./dataset/captions")
 
     import json
     with open(args.config) as f:
