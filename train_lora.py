@@ -6,7 +6,7 @@ from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from torch.optim import AdamW
-from lora import LoraConfig, inject_lora
+from peft import LoraConfig, get_peft_model
 
 # Hugging Face CLI login function
 def huggingface_login(token):
@@ -50,17 +50,17 @@ def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_tok
     # Load the base model
     pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype="auto")
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
-    
-    # Inject LoRA into the model
+
+    # Inject LoRA into the model using PEFT
     lora_config = LoraConfig(
-        dim=config['network_dim'], 
-        alpha=config['network_alpha'], 
-        noise_offset=config['noise_offset']
+        r=config['network_dim'], 
+        lora_alpha=config['network_alpha'], 
+        target_modules=["unet", "text_encoder"]
     )
-    inject_lora(pipe.unet, lora_config)
+    lora_model = get_peft_model(pipe.unet, lora_config)
 
     # Optimizer
-    optimizer = AdamW(params=pipe.unet.parameters(), lr=config['unet_lr'])
+    optimizer = AdamW(params=lora_model.parameters(), lr=config['unet_lr'])
 
     # Training loop
     for epoch in range(config['epochs']):
