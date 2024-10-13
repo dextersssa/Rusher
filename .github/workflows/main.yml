@@ -19,15 +19,18 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+
       - name: Set Up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu117
           pip install transformers diffusers accelerate safetensors pillow requests
+
       - name: Run Training Script
         env:
           HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
@@ -39,6 +42,12 @@ jobs:
             --trigger_word "${{ github.event.inputs.trigger-word }}" \
             --hf_token "$HUGGINGFACE_TOKEN" \
             --config "config.json"
+
+      - name: List Dataset Contents
+        run: |
+          echo "Listing contents of ./dataset:"
+          ls -R ./dataset
+
       - name: Upload Model to Hugging Face
         env:
           HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
