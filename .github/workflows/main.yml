@@ -13,8 +13,6 @@ on:
         required: true
         description: The total number of training steps.
         default: '2000'
-env:
-  HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
 jobs:
   train-model:
     runs-on: ubuntu-latest
@@ -31,20 +29,24 @@ jobs:
           pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu117
           pip install transformers diffusers accelerate safetensors pillow requests
       - name: Run Training Script
+        env:
+          HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
         run: |
           python train_lora.py \
             --data_url "https://huggingface.co/Roshmikax/sdxlnngi/resolve/main/navodi.zip" \
-            --checkpoint_url "https://civitai.com/api/download/models/290640?type=Model&format=SafeTensor&size=pruned&fp=fp16&token=075a4e5a368529bba1bd492fd2443386" \
+            --checkpoint_url "https://civitai.com/api/download/models/290640?type=Model&format=SafeTensor&size=pruned&fp=fp16" \
             --output_dir "./output" \
             --trigger_word "${{ github.event.inputs.trigger-word }}" \
-            --hf_token ${{ secrets.HUGGINGFACE_TOKEN }} \
+            --hf_token "$HUGGINGFACE_TOKEN" \
             --config "config.json"
       - name: Upload Model to Hugging Face
+        env:
+          HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
         run: |
-          huggingface-cli login --token ${{ secrets.HUGGINGFACE_TOKEN }}
+          huggingface-cli login --token "$HUGGINGFACE_TOKEN"
           cd output
           git init
-          git remote add origin https://huggingface.co/${{ github.event.inputs.model-name }}
+          git remote add origin "https://huggingface.co/${{ github.event.inputs.model-name }}"
           git add .
           git commit -m "Add trained model"
           git push origin main --force
