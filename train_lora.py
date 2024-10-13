@@ -3,6 +3,7 @@ import argparse
 import zipfile
 import requests
 from PIL import Image
+import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from torch.optim import AdamW
@@ -27,7 +28,7 @@ def download_checkpoint(checkpoint_url, output_path):
         f.write(response.content)
 
 # BLIP Caption Generation
-def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-base'):
+def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-image-captioning-base'):
     processor = BlipProcessor.from_pretrained(model_name)
     model = BlipForConditionalGeneration.from_pretrained(model_name)
 
@@ -48,19 +49,19 @@ def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-base'):
 # Train the LoRA model
 def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, config):
     # Load the base model
-    pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype="auto")
+    pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype=torch.float16)
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
 
     # Inject LoRA into the model using PEFT
     lora_config = LoraConfig(
         r=config['network_dim'], 
         lora_alpha=config['network_alpha'], 
-        target_modules=["unet", "text_encoder"]
+        target_modules=["q_proj", "v_proj"]
     )
-    lora_model = get_peft_model(pipe.unet, lora_config)
+    pipe.unet = get_peft_model(pipe.unet, lora_config)
 
     # Optimizer
-    optimizer = AdamW(params=lora_model.parameters(), lr=config['unet_lr'])
+    optimizer = AdamW(params=pipe.unet.parameters(), lr=config['unet_lr'])
 
     # Training loop
     for epoch in range(config['epochs']):
@@ -68,6 +69,7 @@ def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_tok
             if step >= config['max_train_steps']:
                 break
             # Add your training logic here: load images, apply augmentations, and backpropagate.
+            # This is a placeholder and needs to be implemented based on your specific requirements
 
         print(f"Epoch {epoch+1}/{config['epochs']} completed.")
 
