@@ -5,14 +5,14 @@ on:
     inputs:
       model-name:
         required: true
-        description: The name of the model to save on Hugging Face after training.
-      prompt-identifier:
+        description: The name of the Hugging Face repository to save the model (e.g., `Roshmikax/PonySDXL_Navodi`).
+      trigger-word:
         required: true
-        description: A custom string to trigger the style in prompts (e.g., "Navodix").
+        description: The trigger word for the LoRA model.
+        default: Navodix
       max-train-steps:
         required: true
-        description: Total number of training steps.
-        type: number
+        description: The total number of training steps.
         default: 2000
 
 env:
@@ -21,58 +21,37 @@ env:
 jobs:
   train-lora:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set Up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch transformers diffusers datasets accelerate loralib cog
+          pip install torch transformers diffusers loralib requests git-python
 
-      - name: Download Base Checkpoint
+      - name: Run Training Script
         run: |
-          wget -O base_model.safetensors https://civitai.com/api/download/models/290640?type=Model&format=SafeTensor&size=pruned&fp=fp16&token=075a4e5a368529bba1bd492fd2443386
+          python train_lora.py \
+            --data_url "https://huggingface.co/Roshmikax/sdxlnngi/resolve/main/navodi.zip" \
+            --checkpoint_url "https://civitai.com/api/download/models/290640?type=Model&format=SafeTensor&size=pruned&fp=fp16&token=075a4e5a368529bba1bd492fd2443386" \
+            --output_dir "./output" \
+            --trigger_word "${{ inputs.trigger-word }}" \
+            --hf_token ${{ secrets.HUGGINGFACE_TOKEN }} \
+            --config "config.json"
 
-      - name: Download Training Dataset
-        run: |
-          wget -O navodi.zip https://huggingface.co/Roshmikax/sdxlnngi/resolve/main/navodi.zip
-          unzip navodi.zip -d dataset
-
-      - name: Setup Hugging Face CLI
+      - name: Upload Model to Hugging Face
         run: |
           huggingface-cli login --token ${{ secrets.HUGGINGFACE_TOKEN }}
-
-      - name: Start LoRA Training
-        run: |
-          cog run python train_lora.py \
-            --model_path base_model.safetensors \
-            --dataset_path ./dataset \
-            --save_dir ./output \
-            --resolution 512 \
-            --train_batch_size 4 \
-            --epochs 10 \
-            --max_train_steps ${{ inputs.max-train-steps }} \
-            --shuffle_tags True \
-            --keep_tokens True \
-            --clip_skip 2 \
-            --flip_aug True \
-            --unet_lr 0.0001 \
-            --text_encoder_lr 0.00005 \
-            --lr_scheduler cosine \
-            --lr_scheduler_cycles 2 \
-            --min_snr_gamma 5.0 \
-            --network_dim 128 \
-            --network_alpha 128 \
-            --noise_offset 0.02 \
-            --optimizer "Prodigy" \
-            --optimizer_args "weight_decay=0.01, adam_epsilon=1e-8"
-
-      - name: Save Trained Model to Hugging Face
-        run: |
-          huggingface-cli upload ./output --repo Roshmikax/PonySDXL_Navodi --token ${{ secrets.HUGGINGFACE_TOKEN }}
+          cd output
+          git init
+          git remote add origin https://huggingface.co/${{ inputs.model-name }}
+          git add .
+          git commit -m "Add trained LoRA model"
+          git push origin main --force
