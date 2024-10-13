@@ -8,11 +8,9 @@ from transformers import BlipProcessor, BlipForConditionalGeneration
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from torch.optim import AdamW
 
-# Hugging Face CLI login function
 def huggingface_login(token):
     os.system(f"huggingface-cli login --token {token}")
 
-# Download function for the dataset
 def download_dataset(url, output_dir):
     response = requests.get(url)
     with open("dataset.zip", 'wb') as f:
@@ -26,7 +24,6 @@ def download_checkpoint(checkpoint_url, output_path):
     with open(output_path, 'wb') as f:
         f.write(response.content)
 
-# BLIP Caption Generation
 def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-image-captioning-base'):
     processor = BlipProcessor.from_pretrained(model_name)
     model = BlipForConditionalGeneration.from_pretrained(model_name)
@@ -45,29 +42,22 @@ def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-image-c
             with open(os.path.join(output_dir, caption_file), "w") as f:
                 f.write(caption)
 
-# Train the model
 def train_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, config):
-    # Load the base model
     pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype=torch.float16)
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
 
-    # Optimizer
     optimizer = AdamW(params=pipe.unet.parameters(), lr=config['unet_lr'])
 
-    # Training loop
     for epoch in range(config['epochs']):
         for step, data in enumerate(os.listdir(data_dir)):
             if step >= config['max_train_steps']:
                 break
-            # Add your training logic here: load images, apply augmentations, and backpropagate.
-            # This is a placeholder and needs to be implemented based on your specific requirements
+            # Add your training logic here
 
         print(f"Epoch {epoch+1}/{config['epochs']} completed.")
 
-    # Save the model
     pipe.save_pretrained(model_name)
 
-    # Upload the model to Hugging Face
     huggingface_login(hf_token)
     os.system(f"git init")
     os.system(f"git remote add origin https://huggingface.co/{model_name}")
@@ -84,17 +74,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Download dataset and base checkpoint
     download_dataset(args.data_url, "./dataset")
     download_checkpoint(args.checkpoint_url, "./base_model.safetensors")
 
-    # Generate captions using BLIP
     generate_captions("./dataset/images", "./dataset/captions")
 
-    # Load the configuration from JSON
     import json
     with open(args.config) as f:
         config = json.load(f)
 
-    # Train the model
     train_model("./dataset", "./base_model.safetensors", args.trigger_word, args.output_dir, args.hf_token, config)
