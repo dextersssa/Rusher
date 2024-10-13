@@ -45,14 +45,11 @@ def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-image-c
             with open(os.path.join(output_dir, caption_file), "w") as f:
                 f.write(caption)
 
-# Train the LoRA model
-def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, config):
+# Train the model
+def train_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, config):
     # Load the base model
     pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype=torch.float16)
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
-
-    # Here you would normally set up LoRA, but since we can't use peft, we'll just use the base model
-    # You may want to look into alternative methods or libraries for LoRA implementation
 
     # Optimizer
     optimizer = AdamW(params=pipe.unet.parameters(), lr=config['unet_lr'])
@@ -100,4 +97,4 @@ if __name__ == "__main__":
         config = json.load(f)
 
     # Train the model
-    train_lora_model("./dataset", "./base_model.safetensors", args.trigger_word, args.output_dir, args.hf_token, config)
+    train_model("./dataset", "./base_model.safetensors", args.trigger_word, args.output_dir, args.hf_token, config)
