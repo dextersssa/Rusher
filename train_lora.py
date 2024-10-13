@@ -1,59 +1,107 @@
-import argparse
 import os
-from diffusers import StableDiffusionPipeline, DDPMScheduler
-from transformers import CLIPTextModel, CLIPTokenizer
-from lora import LoRAModel
-from datasets import load_dataset
+import argparse
+import zipfile
+import requests
+from PIL import Image
+from transformers import BlipProcessor, BlipForConditionalGeneration
+from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
+from torch.optim import AdamW
+from lora import LoraConfig, inject_lora
 
-def train_lora(args):
-    # Load base model
-    pipeline = StableDiffusionPipeline.from_pretrained(args.model_path)
+# Hugging Face CLI login function
+def huggingface_login(token):
+    os.system(f"huggingface-cli login --token {token}")
 
-    # Load dataset
-    dataset = load_dataset('imagefolder', data_dir=args.dataset_path)
+# Download function for the dataset
+def download_dataset(url, output_dir):
+    response = requests.get(url)
+    with open("dataset.zip", 'wb') as f:
+        f.write(response.content)
 
-    # Initialize LoRA model
-    lora_model = LoRAModel(pipeline, args.network_dim, args.network_alpha)
+    with zipfile.ZipFile("dataset.zip", 'r') as zip_ref:
+        zip_ref.extractall(output_dir)
+
+def download_checkpoint(checkpoint_url, output_path):
+    response = requests.get(checkpoint_url)
+    with open(output_path, 'wb') as f:
+        f.write(response.content)
+
+# BLIP Caption Generation
+def generate_captions(input_dir, output_dir, model_name='Salesforce/blip-base'):
+    processor = BlipProcessor.from_pretrained(model_name)
+    model = BlipForConditionalGeneration.from_pretrained(model_name)
+
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for image_name in os.listdir(input_dir):
+        if image_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_path = os.path.join(input_dir, image_name)
+            image = Image.open(image_path).convert('RGB')
+            inputs = processor(image, return_tensors="pt")
+            out = model.generate(**inputs)
+            caption = processor.decode(out[0], skip_special_tokens=True)
+
+            caption_file = os.path.splitext(image_name)[0] + ".txt"
+            with open(os.path.join(output_dir, caption_file), "w") as f:
+                f.write(caption)
+
+# Train the LoRA model
+def train_lora_model(data_dir, checkpoint_path, trigger_word, model_name, hf_token, config):
+    # Load the base model
+    pipe = StableDiffusionPipeline.from_pretrained(checkpoint_path, torch_dtype="auto")
+    pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+    
+    # Inject LoRA into the model
+    lora_config = LoraConfig(
+        dim=config['network_dim'], 
+        alpha=config['network_alpha'], 
+        noise_offset=config['noise_offset']
+    )
+    inject_lora(pipe.unet, lora_config)
+
+    # Optimizer
+    optimizer = AdamW(params=pipe.unet.parameters(), lr=config['unet_lr'])
 
     # Training loop
-    for epoch in range(args.epochs):
-        for step, batch in enumerate(dataset):
-            images = batch['image']
-            captions = batch['caption']
-
-            # Training step logic here
-            lora_model.train_step(images, captions)
-
-            if step > args.max_train_steps:
+    for epoch in range(config['epochs']):
+        for step, data in enumerate(os.listdir(data_dir)):
+            if step >= config['max_train_steps']:
                 break
-    
-    # Save trained model
-    os.makedirs(args.save_dir, exist_ok=True)
-    lora_model.save_pretrained(args.save_dir)
+            # Add your training logic here: load images, apply augmentations, and backpropagate.
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Train LoRA model")
-    parser.add_argument("--model_path", type=str, required=True)
-    parser.add_argument("--dataset_path", type=str, required=True)
-    parser.add_argument("--save_dir", type=str, required=True)
-    parser.add_argument("--resolution", type=int, default=512)
-    parser.add_argument("--train_batch_size", type=int, default=4)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--max_train_steps", type=int, default=2000)
-    parser.add_argument("--shuffle_tags", type=bool, default=True)
-    parser.add_argument("--keep_tokens", type=bool, default=True)
-    parser.add_argument("--clip_skip", type=int, default=2)
-    parser.add_argument("--flip_aug", type=bool, default=True)
-    parser.add_argument("--unet_lr", type=float, default=0.0001)
-    parser.add_argument("--text_encoder_lr", type=float, default=0.00005)
-    parser.add_argument("--lr_scheduler", type=str, default="cosine")
-    parser.add_argument("--lr_scheduler_cycles", type=int, default=2)
-    parser.add_argument("--min_snr_gamma", type=float, default=5.0)
-    parser.add_argument("--network_dim", type=int, default=128)
-    parser.add_argument("--network_alpha", type=int, default=128)
-    parser.add_argument("--noise_offset", type=float, default=0.02)
-    parser.add_argument("--optimizer", type=str, default="Prodigy")
-    parser.add_argument("--optimizer_args", type=str, default="weight_decay=0.01, adam_epsilon=1e-8")
+        print(f"Epoch {epoch+1}/{config['epochs']} completed.")
+
+    # Save the model
+    pipe.save_pretrained(model_name)
+
+    # Upload the model to Hugging Face
+    huggingface_login(hf_token)
+    os.system(f"git init")
+    os.system(f"git remote add origin https://huggingface.co/{model_name}")
+    os.system(f"git add . && git commit -m 'Add trained LoRA model' && git push origin main")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train a LoRA model")
+    parser.add_argument("--data_url", type=str, required=True, help="URL of the dataset zip file")
+    parser.add_argument("--checkpoint_url", type=str, required=True, help="URL of the base model checkpoint")
+    parser.add_argument("--output_dir", type=str, default="./output", help="Directory to save trained model")
+    parser.add_argument("--trigger_word", type=str, default="Navodix", help="Trigger word for the model")
+    parser.add_argument("--hf_token", type=str, required=True, help="Hugging Face access token")
+    parser.add_argument("--config", type=str, required=True, help="JSON file with hyperparameters")
 
     args = parser.parse_args()
-    train_lora(args)
+
+    # Download dataset and base checkpoint
+    download_dataset(args.data_url, "./dataset")
+    download_checkpoint(args.checkpoint_url, "./base_model.safetensors")
+
+    # Generate captions using BLIP
+    generate_captions("./dataset/images", "./dataset/captions")
+
+    # Load the configuration from JSON
+    import json
+    with open(args.config) as f:
+        config = json.load(f)
+
+    # Train the model
+    train_lora_model("./dataset", "./base_model.safetensors", args.trigger_word, args.output_dir, args.hf_token, config)
